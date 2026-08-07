@@ -11,10 +11,18 @@ import requests
 
 DEFAULT_URL = "https://datachart.500.com/dlt/history/newinc/history.php"
 
+_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/125.0.0.0 Safari/537.36"
+    )
+}
+
 
 def fetch_dlt_history(limit: int) -> pd.DataFrame:
     # 使用 GBK 解码网页，避免历史表乱码
-    response = requests.get(DEFAULT_URL, params={"limit": limit, "sort": "desc"}, timeout=30)
+    response = requests.get(DEFAULT_URL, params={"limit": limit, "sort": "desc"}, headers=_HEADERS, timeout=30)
     response.encoding = "gbk"
 
     tables = pd.read_html(StringIO(response.text), attrs={"id": "tablelist"})

@@ -9,13 +9,21 @@ import pandas as pd
 import requests
 
 
-DEFAULT_URL = "https://datachart.500star.com/sd/history/inc/history.php"
+DEFAULT_URL = "https://datachart.500.com/sd/history/inc/history.php"
+
+_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/125.0.0.0 Safari/537.36"
+    )
+}
 
 
 def fetch_sd_history(limit: int | None = None) -> pd.DataFrame:
     # 使用GBK 解码网页，避免历史表乱码
     params = {"limit": int(limit)} if limit else None
-    response = requests.get(DEFAULT_URL, params=params, timeout=30)
+    response = requests.get(DEFAULT_URL, params=params, headers=_HEADERS, timeout=30)
     response.encoding = "gbk"
 
     tables = pd.read_html(StringIO(response.text), attrs={"id": "tablelist"})

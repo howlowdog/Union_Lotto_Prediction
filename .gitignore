@@ -15,13 +15,15 @@ env/
 ENV/
 .conda/
 
-.streamlit/
 .ipynb_checkpoints/
 
 
 ssq_history.xlsx
+dlt_history.xlsx
 sd_history.xlsx
 *.log
 
+plots/
 .DS_Store
 Thumbs.db
+test_*.xlsx
