@@ -116,6 +116,29 @@ def append_lottery_data(
     return len(truly_new), len(df_combined)
 
 
+def save_prediction_backup(
+    prefix: str,
+    method_name: str,
+    analysis_periods: int,
+    numbers_str: str,
+    smooth: float | None = None,
+) -> Path:
+    # 将预测结果追加写入 {prefix}_{年月日}.txt
+    now = datetime.now()
+    filename = f"{prefix}_{now.strftime('%Y%m%d')}.txt"
+    filepath = Path(filename)
+    smooth_text = f"  平滑系数: {smooth}" if smooth is not None else ""
+    line = (
+        f"[{now.strftime('%Y-%m-%d %H:%M:%S')}] "
+        f"预测类型: {method_name}  "
+        f"分析期数: {analysis_periods}{smooth_text}  "
+        f"预测号码: {numbers_str}\n"
+    )
+    with open(filepath, "a", encoding="utf-8") as f:
+        f.write(line)
+    return filepath
+
+
 @st.cache_data(show_spinner=False)
 def load_data(file_path: str) -> pd.DataFrame:
     # 读取 Excel 并做基础清洗
@@ -1967,6 +1990,13 @@ def render_ssq_markov_tab(df_num: pd.DataFrame) -> None:
     render_ball_row([f"{n:02d}" for n in recommended_reds], f"{recommended_blue:02d}")
     st.code(format_ticket(recommended_reds, recommended_blue))
     st.caption("说明：基于上一期命中/未命中状态的一阶转移概率进行排序与筛选。")
+    if st.button("加入备选", key="ssq_markov_backup"):
+        path = save_prediction_backup(
+            "ssq", "马尔科夫预测", int(analysis_window),
+            format_ticket(recommended_reds, recommended_blue),
+            smooth=float(smooth),
+        )
+        st.success(f"已保存到 {path}")
 
     path_red = plot_markov_probability_bar(
         red_frame,
@@ -2046,6 +2076,13 @@ def render_dlt_markov_tab(df_num: pd.DataFrame) -> None:
     render_dlt_row([f"{n:02d}" for n in recommended_fronts], [f"{n:02d}" for n in recommended_backs])
     st.code(format_dlt_ticket(recommended_fronts, recommended_backs))
     st.caption("说明：前区按分区高概率稳定筛选，后区按转移概率排序选取。")
+    if st.button("加入备选", key="dlt_markov_backup"):
+        path = save_prediction_backup(
+            "dlt", "马尔科夫预测", int(analysis_window),
+            format_dlt_ticket(recommended_fronts, recommended_backs),
+            smooth=float(smooth),
+        )
+        st.success(f"已保存到 {path}")
 
     path_front = plot_markov_probability_bar(
         front_frame,
@@ -2123,6 +2160,13 @@ def render_sd_markov_tab(df_num: pd.DataFrame) -> None:
     render_sd_row([str(d) for d in recommended_digits], sum(recommended_digits))
     st.code(format_sd_ticket(recommended_digits))
     st.caption("说明：分别对百位、十位、个位建立一阶转移概率并独立选择最高概率数字。")
+    if st.button("加入备选", key="sd_markov_backup"):
+        path = save_prediction_backup(
+            "sd", "马尔科夫预测", int(analysis_window),
+            format_sd_ticket(recommended_digits),
+            smooth=float(smooth),
+        )
+        st.success(f"已保存到 {path}")
 
     pos_cols = st.columns(3)
     position_labels = {
@@ -3825,6 +3869,9 @@ def main() -> None:
             render_sd_row([str(d) for d in sd_base], sd_base_sum)
             st.code(format_sd_ticket(sd_base))
             st.caption("综合规则：多方法投票 + 近期热度微调。")
+            if st.button("加入备选", key="sd_base_backup"):
+                path = save_prediction_backup("sd", "基础推荐", n_periods_sd, format_sd_ticket(sd_base))
+                st.success(f"已保存到 {path}")
 
             if sd_method_weights:
                 sd_feedback = build_sd_ensemble(
@@ -3838,6 +3885,9 @@ def main() -> None:
                 render_sd_row([str(d) for d in sd_feedback], sd_feedback_sum)
                 st.code(format_sd_ticket(sd_feedback))
                 st.caption("反馈逻辑：依据上一期实际号码对方法投票权重自动调整。")
+                if st.button("加入备选", key="sd_feedback_backup"):
+                    path = save_prediction_backup("sd", "反馈推荐", n_periods_sd, format_sd_ticket(sd_feedback))
+                    st.success(f"已保存到 {path}")
             else:
                 st.caption("反馈逻辑：历史期数不足，默认使用基础推荐。")
 
@@ -3846,6 +3896,14 @@ def main() -> None:
                 with st.expander(item["name"], expanded=expanded):
                     st.write(item["desc"])
                     st.code(format_sd_ticket(item["digits"]))
+                    if st.button("加入备选", key=f"sd_method_backup_{idx}"):
+                        smooth_val = st.session_state.get("sd_markov_smooth")
+                        path = save_prediction_backup(
+                            "sd", item["name"], n_periods_sd,
+                            format_sd_ticket(item["digits"]),
+                            smooth=smooth_val,
+                        )
+                        st.success(f"已保存到 {path}")
 
         with tab_backtest:
             st.markdown("**回测分析统计**")
@@ -4025,6 +4083,9 @@ def main() -> None:
             render_dlt_row([f"{n:02d}" for n in base_fronts], [f"{n:02d}" for n in base_backs])
             st.code(format_dlt_ticket(base_fronts, base_backs))
             st.caption("综合规则：多方法投票 + 近期热度微调 + 分区约束。")
+            if st.button("加入备选", key="dlt_base_backup"):
+                path = save_prediction_backup("dlt", "基础推荐", n_periods_dlt, format_dlt_ticket(base_fronts, base_backs))
+                st.success(f"已保存到 {path}")
 
             if dlt_method_weights:
                 feedback_fronts, feedback_backs = build_dlt_ensemble(
@@ -4041,6 +4102,9 @@ def main() -> None:
                 )
                 st.code(format_dlt_ticket(feedback_fronts, feedback_backs))
                 st.caption("反馈逻辑：依据上一期实际号码对方法投票权重自动调整。")
+                if st.button("加入备选", key="dlt_feedback_backup"):
+                    path = save_prediction_backup("dlt", "反馈推荐", n_periods_dlt, format_dlt_ticket(feedback_fronts, feedback_backs))
+                    st.success(f"已保存到 {path}")
             else:
                 st.caption("反馈逻辑：历史期数不足，默认使用基础推荐。")
 
@@ -4049,6 +4113,14 @@ def main() -> None:
                 with st.expander(item["name"], expanded=expanded):
                     st.write(item["desc"])
                     st.code(format_dlt_ticket(item["fronts"], item["backs"]))
+                    if st.button("加入备选", key=f"dlt_method_backup_{idx}"):
+                        smooth_val = st.session_state.get("dlt_markov_smooth")
+                        path = save_prediction_backup(
+                            "dlt", item["name"], n_periods_dlt,
+                            format_dlt_ticket(item["fronts"], item["backs"]),
+                            smooth=smooth_val,
+                        )
+                        st.success(f"已保存到 {path}")
 
         with tab_backtest:
             st.markdown("**回测分析统计**")
@@ -4211,6 +4283,9 @@ def main() -> None:
         render_ball_row([f"{n:02d}" for n in base_reds], f"{base_blue:02d}")
         st.code(format_ticket(base_reds, base_blue))
         st.caption("综合规则：多方法投票 + 近期热度微调 + 分区约束。")
+        if st.button("加入备选", key="ssq_base_backup"):
+            path = save_prediction_backup("ssq", "基础推荐", n_periods, format_ticket(base_reds, base_blue))
+            st.success(f"已保存到 {path}")
 
         if ssq_method_weights:
             feedback_reds, feedback_blue = build_ensemble_recommendation(
@@ -4224,6 +4299,9 @@ def main() -> None:
             render_ball_row([f"{n:02d}" for n in feedback_reds], f"{feedback_blue:02d}")
             st.code(format_ticket(feedback_reds, feedback_blue))
             st.caption("反馈逻辑：依据上一期实际号码对方法投票权重自动调整。")
+            if st.button("加入备选", key="ssq_feedback_backup"):
+                path = save_prediction_backup("ssq", "反馈推荐", n_periods, format_ticket(feedback_reds, feedback_blue))
+                st.success(f"已保存到 {path}")
         else:
             st.caption("反馈逻辑：历史期数不足，默认使用基础推荐。")
 
@@ -4232,6 +4310,14 @@ def main() -> None:
             with st.expander(item["name"], expanded=expanded):
                 st.write(item["desc"])
                 st.code(format_ticket(item["reds"], int(item["blue"])))
+                if st.button("加入备选", key=f"ssq_method_backup_{idx}"):
+                    smooth_val = st.session_state.get("ssq_markov_smooth")
+                    path = save_prediction_backup(
+                        "ssq", item["name"], n_periods,
+                        format_ticket(item["reds"], int(item["blue"])),
+                        smooth=smooth_val,
+                    )
+                    st.success(f"已保存到 {path}")
 
     with tab_backtest:
         st.markdown("**回测分析统计**")
