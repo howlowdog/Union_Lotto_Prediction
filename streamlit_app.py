@@ -83,6 +83,39 @@ def normalize_numeric_str(series: pd.Series, width: int) -> pd.Series:
     return cleaned.str.zfill(width)
 
 
+def append_lottery_data(
+    data_path: Path,
+    fetch_func,
+    issue_col: str = "issue",
+    fetch_limit: int = 200,
+) -> Tuple[int, int]:
+    # 追加模式：读取已有数据，只抓取新增期数追加到末尾
+    if not data_path.exists():
+        raise FileNotFoundError("数据文件不存在，请先使用「下载/更新历史数据」创建文件。")
+
+    df_existing = pd.read_excel(str(data_path), engine="openpyxl")
+    if df_existing.empty or issue_col not in df_existing.columns:
+        raise ValueError("已有数据文件格式异常，无法追加。")
+
+    existing_issues = set(df_existing[issue_col].astype(str).str.strip())
+    latest_issue = df_existing[issue_col].astype(str).str.strip().max()
+
+    df_new = fetch_func(fetch_limit)
+    new_issues = set(df_new[issue_col].astype(str).str.strip())
+    truly_new = new_issues - existing_issues
+
+    if not truly_new:
+        return 0, len(existing_issues)
+
+    df_new_filtered = df_new[df_new[issue_col].astype(str).str.strip().isin(truly_new)].copy()
+    df_combined = pd.concat([df_existing, df_new_filtered], ignore_index=True)
+    df_combined = df_combined.drop_duplicates(subset=[issue_col], keep="last")
+    df_combined = df_combined.sort_values(by=issue_col, ascending=True).reset_index(drop=True)
+    df_combined.to_excel(str(data_path), index=False, engine="openpyxl")
+
+    return len(truly_new), len(df_combined)
+
+
 @st.cache_data(show_spinner=False)
 def load_data(file_path: str) -> pd.DataFrame:
     # 读取 Excel 并做基础清洗
@@ -3595,8 +3628,8 @@ def main() -> None:
             data_path = Path(data_file)
 
             st.subheader("历史数据下载")
-            limit = st.number_input("下载期数上限", min_value=100, max_value=10000, value=5000, step=100)
-            if st.button("下载/更新历史数据"):
+            limit = st.number_input("下载期数上限", min_value=100, max_value=10000, value=5000, step=100, key="ssq_dl_limit")
+            if st.button("下载/更新历史数据", key="ssq_dl_btn"):
                 if fetch_ssq_history is None:
                     st.error(f"无法调用抓取模块：{FETCH_IMPORT_ERROR}")
                 else:
@@ -3605,17 +3638,31 @@ def main() -> None:
                         df_new.to_excel(data_path, index=False, engine="openpyxl")
                         st.cache_data.clear()
                     st.success(f"已保存：{data_path.resolve()}")
+            if st.button("追加最新期数", key="ssq_append_btn"):
+                if fetch_ssq_history is None:
+                    st.error(f"无法调用抓取模块：{FETCH_IMPORT_ERROR}")
+                else:
+                    try:
+                        with st.spinner("正在检查并追加新期数..."):
+                            new_count, total_count = append_lottery_data(data_path, fetch_ssq_history)
+                            st.cache_data.clear()
+                        if new_count == 0:
+                            st.info(f"没有新期数，当前共 {total_count} 期。")
+                        else:
+                            st.success(f"追加了 {new_count} 期新数据，当前共 {total_count} 期。")
+                    except (FileNotFoundError, ValueError) as e:
+                        st.error(str(e))
 
             st.subheader("分析期数")
-            mode = st.radio("选择范围", ["最近100期", "自定义期数"], index=0)
-            custom_n = st.number_input("自定义期数", min_value=20, max_value=10000, value=300, step=10)
+            mode = st.radio("选择范围", ["最近100期", "自定义期数"], index=0, key="ssq_mode")
+            custom_n = st.number_input("自定义期数", min_value=20, max_value=10000, value=300, step=10, key="ssq_custom_n")
         elif lottery == "大乐透":
             data_file = st.text_input("数据文件路径", value=DLT_FILE_DEFAULT)
             data_path = Path(data_file)
 
             st.subheader("历史数据下载")
-            limit = st.number_input("下载期数上限", min_value=100, max_value=10000, value=5000, step=100)
-            if st.button("下载/更新历史数据"):
+            limit = st.number_input("下载期数上限", min_value=100, max_value=10000, value=5000, step=100, key="dlt_dl_limit")
+            if st.button("下载/更新历史数据", key="dlt_dl_btn"):
                 if fetch_dlt_history is None:
                     st.error(f"无法调用抓取模块：{FETCH_DLT_IMPORT_ERROR}")
                 else:
@@ -3624,17 +3671,31 @@ def main() -> None:
                         df_new.to_excel(data_path, index=False, engine="openpyxl")
                         st.cache_data.clear()
                     st.success(f"已保存：{data_path.resolve()}")
+            if st.button("追加最新期数", key="dlt_append_btn"):
+                if fetch_dlt_history is None:
+                    st.error(f"无法调用抓取模块：{FETCH_DLT_IMPORT_ERROR}")
+                else:
+                    try:
+                        with st.spinner("正在检查并追加新期数..."):
+                            new_count, total_count = append_lottery_data(data_path, fetch_dlt_history)
+                            st.cache_data.clear()
+                        if new_count == 0:
+                            st.info(f"没有新期数，当前共 {total_count} 期。")
+                        else:
+                            st.success(f"追加了 {new_count} 期新数据，当前共 {total_count} 期。")
+                    except (FileNotFoundError, ValueError) as e:
+                        st.error(str(e))
 
             st.subheader("分析期数")
-            mode = st.radio("选择范围", ["最近100期", "自定义期数"], index=0)
-            custom_n = st.number_input("自定义期数", min_value=20, max_value=10000, value=300, step=10)
+            mode = st.radio("选择范围", ["最近100期", "自定义期数"], index=0, key="dlt_mode")
+            custom_n = st.number_input("自定义期数", min_value=20, max_value=10000, value=300, step=10, key="dlt_custom_n")
         else:
             data_file = st.text_input("数据文件路径", value=SD_FILE_DEFAULT)
             data_path = Path(data_file)
 
             st.subheader("历史数据下载")
-            limit = st.number_input("下载期数上限", min_value=100, max_value=10000, value=5000, step=100)
-            if st.button("下载/更新历史数据"):
+            limit = st.number_input("下载期数上限", min_value=100, max_value=10000, value=5000, step=100, key="sd_dl_limit")
+            if st.button("下载/更新历史数据", key="sd_dl_btn"):
                 if fetch_sd_history is None:
                     st.error(f"无法调用抓取模块：{FETCH_SD_IMPORT_ERROR}")
                 else:
@@ -3643,10 +3704,24 @@ def main() -> None:
                         df_new.to_excel(data_path, index=False, engine="openpyxl")
                         st.cache_data.clear()
                     st.success(f"已保存：{data_path.resolve()}")
+            if st.button("追加最新期数", key="sd_append_btn"):
+                if fetch_sd_history is None:
+                    st.error(f"无法调用抓取模块：{FETCH_SD_IMPORT_ERROR}")
+                else:
+                    try:
+                        with st.spinner("正在检查并追加新期数..."):
+                            new_count, total_count = append_lottery_data(data_path, fetch_sd_history)
+                            st.cache_data.clear()
+                        if new_count == 0:
+                            st.info(f"没有新期数，当前共 {total_count} 期。")
+                        else:
+                            st.success(f"追加了 {new_count} 期新数据，当前共 {total_count} 期。")
+                    except (FileNotFoundError, ValueError) as e:
+                        st.error(str(e))
 
             st.subheader("分析期数")
-            mode = st.radio("选择范围", ["最近100期", "自定义期数"], index=0)
-            custom_n = st.number_input("自定义期数", min_value=20, max_value=10000, value=300, step=10)
+            mode = st.radio("选择范围", ["最近100期", "自定义期数"], index=0, key="sd_mode")
+            custom_n = st.number_input("自定义期数", min_value=20, max_value=10000, value=300, step=10, key="sd_custom_n")
 
     if lottery == "福彩3D":
         if not data_path.exists():
