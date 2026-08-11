@@ -139,6 +139,79 @@ def save_prediction_backup(
     return filepath
 
 
+def compare_ssq_with_history(
+    reds: List[int], blue: int, df_all: pd.DataFrame
+) -> Tuple[bool, str]:
+    # 比对双色球预测号码与历史数据是否完全相同
+    if df_all.empty:
+        return False, "历史数据为空"
+    red_str = [f"{n:02d}" for n in reds]
+    blue_str = f"{blue:02d}"
+    mask = (
+        (df_all["red_1"] == red_str[0])
+        & (df_all["red_2"] == red_str[1])
+        & (df_all["red_3"] == red_str[2])
+        & (df_all["red_4"] == red_str[3])
+        & (df_all["red_5"] == red_str[4])
+        & (df_all["red_6"] == red_str[5])
+        & (df_all["blue"] == blue_str)
+    )
+    matched = df_all[mask]
+    if matched.empty:
+        return False, "历史数据中未找到完全相同的组合"
+    issues = matched["issue"].tolist()
+    dates = matched[DATE_COL].dt.strftime("%Y-%m-%d").tolist()
+    detail = "; ".join(f"第{iss}期({dt})" for iss, dt in zip(issues, dates))
+    return True, f"️ 与历史数据完全相同！出现在：{detail}"
+
+
+def compare_dlt_with_history(
+    fronts: List[int], backs: List[int], df_all: pd.DataFrame
+) -> Tuple[bool, str]:
+    # 比对大乐透预测号码与历史数据是否完全相同
+    if df_all.empty:
+        return False, "历史数据为空"
+    front_str = [f"{n:02d}" for n in fronts]
+    back_str = [f"{n:02d}" for n in backs]
+    mask = (
+        (df_all["front_1"] == front_str[0])
+        & (df_all["front_2"] == front_str[1])
+        & (df_all["front_3"] == front_str[2])
+        & (df_all["front_4"] == front_str[3])
+        & (df_all["front_5"] == front_str[4])
+        & (df_all["back_1"] == back_str[0])
+        & (df_all["back_2"] == back_str[1])
+    )
+    matched = df_all[mask]
+    if matched.empty:
+        return False, "历史数据中未找到完全相同的组合"
+    issues = matched["issue"].tolist()
+    dates = matched[DATE_COL].dt.strftime("%Y-%m-%d").tolist()
+    detail = "; ".join(f"第{iss}期({dt})" for iss, dt in zip(issues, dates))
+    return True, f"️ 与历史数据完全相同！出现在：{detail}"
+
+
+def compare_sd_with_history(
+    digits: List[int], df_all: pd.DataFrame
+) -> Tuple[bool, str]:
+    # 比对福彩3D预测号码与历史数据是否完全相同
+    if df_all.empty:
+        return False, "历史数据为空"
+    digit_str = [str(d) for d in digits]
+    mask = (
+        (df_all["d1"] == digit_str[0])
+        & (df_all["d2"] == digit_str[1])
+        & (df_all["d3"] == digit_str[2])
+    )
+    matched = df_all[mask]
+    if matched.empty:
+        return False, "历史数据中未找到完全相同的组合"
+    issues = matched["issue"].tolist()
+    dates = matched[DATE_COL].dt.strftime("%Y-%m-%d").tolist()
+    detail = "; ".join(f"第{iss}期({dt})" for iss, dt in zip(issues, dates))
+    return True, f"⚠️ 与历史数据完全相同！出现在：{detail}"
+
+
 @st.cache_data(show_spinner=False)
 def load_data(file_path: str) -> pd.DataFrame:
     # 读取 Excel 并做基础清洗
@@ -1947,7 +2020,7 @@ def format_digit_markov_frame(frame: pd.DataFrame, top_n: int) -> pd.DataFrame:
     )
 
 
-def render_ssq_markov_tab(df_num: pd.DataFrame) -> None:
+def render_ssq_markov_tab(df_num: pd.DataFrame, df_all: pd.DataFrame) -> None:
     # 渲染双色球马尔科夫专项分析页
     st.markdown("**马尔科夫预测专项分析**")
     max_window = max(2, len(df_num))
@@ -1988,7 +2061,13 @@ def render_ssq_markov_tab(df_num: pd.DataFrame) -> None:
 
     st.markdown("**马尔科夫推荐号码**")
     render_ball_row([f"{n:02d}" for n in recommended_reds], f"{recommended_blue:02d}")
-    st.code(format_ticket(recommended_reds, recommended_blue))
+    _col_num, _col_cmp = st.columns([3, 1])
+    _col_num.code(format_ticket(recommended_reds, recommended_blue))
+    _m, _msg = compare_ssq_with_history(recommended_reds, recommended_blue, df_all)
+    if _m:
+        _col_cmp.warning(f"✅ {_msg}")
+    else:
+        _col_cmp.caption("🔍 历史未重现")
     st.caption("说明：基于上一期命中/未命中状态的一阶转移概率进行排序与筛选。")
     if st.button("加入备选", key="ssq_markov_backup"):
         path = save_prediction_backup(
@@ -2033,7 +2112,7 @@ def render_ssq_markov_tab(df_num: pd.DataFrame) -> None:
         )
 
 
-def render_dlt_markov_tab(df_num: pd.DataFrame) -> None:
+def render_dlt_markov_tab(df_num: pd.DataFrame, df_all: pd.DataFrame) -> None:
     # 渲染大乐透马尔科夫专项分析页
     st.markdown("**马尔科夫预测专项分析**")
     max_window = max(2, len(df_num))
@@ -2074,7 +2153,13 @@ def render_dlt_markov_tab(df_num: pd.DataFrame) -> None:
 
     st.markdown("**马尔科夫推荐号码**")
     render_dlt_row([f"{n:02d}" for n in recommended_fronts], [f"{n:02d}" for n in recommended_backs])
-    st.code(format_dlt_ticket(recommended_fronts, recommended_backs))
+    _col_num, _col_cmp = st.columns([3, 1])
+    _col_num.code(format_dlt_ticket(recommended_fronts, recommended_backs))
+    _m, _msg = compare_dlt_with_history(recommended_fronts, recommended_backs, df_all)
+    if _m:
+        _col_cmp.warning(f"✅ {_msg}")
+    else:
+        _col_cmp.caption("🔍 历史未重现")
     st.caption("说明：前区按分区高概率稳定筛选，后区按转移概率排序选取。")
     if st.button("加入备选", key="dlt_markov_backup"):
         path = save_prediction_backup(
@@ -2119,7 +2204,7 @@ def render_dlt_markov_tab(df_num: pd.DataFrame) -> None:
         )
 
 
-def render_sd_markov_tab(df_num: pd.DataFrame) -> None:
+def render_sd_markov_tab(df_num: pd.DataFrame, df_all: pd.DataFrame) -> None:
     # 渲染福彩3D马尔科夫专项分析页
     st.markdown("**马尔科夫预测专项分析**")
     max_window = max(2, len(df_num))
@@ -2158,7 +2243,13 @@ def render_sd_markov_tab(df_num: pd.DataFrame) -> None:
 
     st.markdown("**马尔科夫推荐号码**")
     render_sd_row([str(d) for d in recommended_digits], sum(recommended_digits))
-    st.code(format_sd_ticket(recommended_digits))
+    _col_num, _col_cmp = st.columns([3, 1])
+    _col_num.code(format_sd_ticket(recommended_digits))
+    _m, _msg = compare_sd_with_history(recommended_digits, df_all)
+    if _m:
+        _col_cmp.warning(f"✅ {_msg}")
+    else:
+        _col_cmp.caption("🔍 历史未重现")
     st.caption("说明：分别对百位、十位、个位建立一阶转移概率并独立选择最高概率数字。")
     if st.button("加入备选", key="sd_markov_backup"):
         path = save_prediction_backup(
@@ -3852,7 +3943,7 @@ def main() -> None:
             st.caption(f"图片已保存：{path_oe}")
 
         with tab_markov:
-            render_sd_markov_tab(df_sd_recent_num)
+            render_sd_markov_tab(df_sd_recent_num, df_sd)
 
         with tab_predict:
             st.markdown("**数学创意预测（仅供娱乐）**")
@@ -3867,7 +3958,13 @@ def main() -> None:
 
             st.markdown("**基础推荐号码**")
             render_sd_row([str(d) for d in sd_base], sd_base_sum)
-            st.code(format_sd_ticket(sd_base))
+            _col_num, _col_cmp = st.columns([3, 1])
+            _col_num.code(format_sd_ticket(sd_base))
+            _m, _msg = compare_sd_with_history(sd_base, df_sd)
+            if _m:
+                _col_cmp.warning(f"✅ {_msg}")
+            else:
+                _col_cmp.caption("🔍 历史未重现")
             st.caption("综合规则：多方法投票 + 近期热度微调。")
             if st.button("加入备选", key="sd_base_backup"):
                 path = save_prediction_backup("sd", "基础推荐", n_periods_sd, format_sd_ticket(sd_base))
@@ -3883,7 +3980,13 @@ def main() -> None:
                 sd_feedback_sum = sum(sd_feedback)
                 st.markdown("**反馈推荐号码**")
                 render_sd_row([str(d) for d in sd_feedback], sd_feedback_sum)
-                st.code(format_sd_ticket(sd_feedback))
+                _col_num, _col_cmp = st.columns([3, 1])
+                _col_num.code(format_sd_ticket(sd_feedback))
+                _m, _msg = compare_sd_with_history(sd_feedback, df_sd)
+                if _m:
+                    _col_cmp.warning(f"✅ {_msg}")
+                else:
+                    _col_cmp.caption("🔍 历史未重现")
                 st.caption("反馈逻辑：依据上一期实际号码对方法投票权重自动调整。")
                 if st.button("加入备选", key="sd_feedback_backup"):
                     path = save_prediction_backup("sd", "反馈推荐", n_periods_sd, format_sd_ticket(sd_feedback))
@@ -3895,7 +3998,13 @@ def main() -> None:
                 expanded = idx == 0
                 with st.expander(item["name"], expanded=expanded):
                     st.write(item["desc"])
-                    st.code(format_sd_ticket(item["digits"]))
+                    _col_num, _col_cmp = st.columns([3, 1])
+                    _col_num.code(format_sd_ticket(item["digits"]))
+                    _m, _msg = compare_sd_with_history(item["digits"], df_sd)
+                    if _m:
+                        _col_cmp.warning(f"✅ {_msg}")
+                    else:
+                        _col_cmp.caption("🔍 历史未重现")
                     if st.button("加入备选", key=f"sd_method_backup_{idx}"):
                         smooth_val = st.session_state.get("sd_markov_smooth")
                         path = save_prediction_backup(
@@ -4055,7 +4164,7 @@ def main() -> None:
             st.caption(f"图片已保存：{path_oe}")
 
         with tab_markov:
-            render_dlt_markov_tab(df_dlt_recent_num)
+            render_dlt_markov_tab(df_dlt_recent_num, df_dlt)
 
         with tab_predict:
             st.markdown("**数学创意预测（仅供娱乐）**")
@@ -4081,7 +4190,13 @@ def main() -> None:
 
             st.markdown("**基础推荐号码**")
             render_dlt_row([f"{n:02d}" for n in base_fronts], [f"{n:02d}" for n in base_backs])
-            st.code(format_dlt_ticket(base_fronts, base_backs))
+            _col_num, _col_cmp = st.columns([3, 1])
+            _col_num.code(format_dlt_ticket(base_fronts, base_backs))
+            _m, _msg = compare_dlt_with_history(base_fronts, base_backs, df_dlt)
+            if _m:
+                _col_cmp.warning(f"✅ {_msg}")
+            else:
+                _col_cmp.caption("🔍 历史未重现")
             st.caption("综合规则：多方法投票 + 近期热度微调 + 分区约束。")
             if st.button("加入备选", key="dlt_base_backup"):
                 path = save_prediction_backup("dlt", "基础推荐", n_periods_dlt, format_dlt_ticket(base_fronts, base_backs))
@@ -4100,7 +4215,13 @@ def main() -> None:
                 render_dlt_row(
                     [f"{n:02d}" for n in feedback_fronts], [f"{n:02d}" for n in feedback_backs]
                 )
-                st.code(format_dlt_ticket(feedback_fronts, feedback_backs))
+                _col_num, _col_cmp = st.columns([3, 1])
+                _col_num.code(format_dlt_ticket(feedback_fronts, feedback_backs))
+                _m, _msg = compare_dlt_with_history(feedback_fronts, feedback_backs, df_dlt)
+                if _m:
+                    _col_cmp.warning(f"✅ {_msg}")
+                else:
+                    _col_cmp.caption("🔍 历史未重现")
                 st.caption("反馈逻辑：依据上一期实际号码对方法投票权重自动调整。")
                 if st.button("加入备选", key="dlt_feedback_backup"):
                     path = save_prediction_backup("dlt", "反馈推荐", n_periods_dlt, format_dlt_ticket(feedback_fronts, feedback_backs))
@@ -4112,7 +4233,13 @@ def main() -> None:
                 expanded = idx == 0
                 with st.expander(item["name"], expanded=expanded):
                     st.write(item["desc"])
-                    st.code(format_dlt_ticket(item["fronts"], item["backs"]))
+                    _col_num, _col_cmp = st.columns([3, 1])
+                    _col_num.code(format_dlt_ticket(item["fronts"], item["backs"]))
+                    _m, _msg = compare_dlt_with_history(item["fronts"], item["backs"], df_dlt)
+                    if _m:
+                        _col_cmp.warning(f"✅ {_msg}")
+                    else:
+                        _col_cmp.caption("🔍 历史未重现")
                     if st.button("加入备选", key=f"dlt_method_backup_{idx}"):
                         smooth_val = st.session_state.get("dlt_markov_smooth")
                         path = save_prediction_backup(
@@ -4261,7 +4388,7 @@ def main() -> None:
         st.caption(f"图片已保存：{path_oe}")
 
     with tab_markov:
-        render_ssq_markov_tab(df_recent_num)
+        render_ssq_markov_tab(df_recent_num, df)
 
     with tab_predict:
         st.markdown("**数学创意预测（仅供娱乐）**")
@@ -4281,7 +4408,13 @@ def main() -> None:
 
         st.markdown("**基础推荐号码**")
         render_ball_row([f"{n:02d}" for n in base_reds], f"{base_blue:02d}")
-        st.code(format_ticket(base_reds, base_blue))
+        _col_num, _col_cmp = st.columns([3, 1])
+        _col_num.code(format_ticket(base_reds, base_blue))
+        _m, _msg = compare_ssq_with_history(base_reds, base_blue, df)
+        if _m:
+            _col_cmp.warning(f"✅ {_msg}")
+        else:
+            _col_cmp.caption("🔍 历史未重现")
         st.caption("综合规则：多方法投票 + 近期热度微调 + 分区约束。")
         if st.button("加入备选", key="ssq_base_backup"):
             path = save_prediction_backup("ssq", "基础推荐", n_periods, format_ticket(base_reds, base_blue))
@@ -4297,7 +4430,13 @@ def main() -> None:
             )
             st.markdown("**反馈推荐号码**")
             render_ball_row([f"{n:02d}" for n in feedback_reds], f"{feedback_blue:02d}")
-            st.code(format_ticket(feedback_reds, feedback_blue))
+            _col_num, _col_cmp = st.columns([3, 1])
+            _col_num.code(format_ticket(feedback_reds, feedback_blue))
+            _m, _msg = compare_ssq_with_history(feedback_reds, feedback_blue, df)
+            if _m:
+                _col_cmp.warning(f"✅ {_msg}")
+            else:
+                _col_cmp.caption("🔍 历史未重现")
             st.caption("反馈逻辑：依据上一期实际号码对方法投票权重自动调整。")
             if st.button("加入备选", key="ssq_feedback_backup"):
                 path = save_prediction_backup("ssq", "反馈推荐", n_periods, format_ticket(feedback_reds, feedback_blue))
@@ -4309,7 +4448,13 @@ def main() -> None:
             expanded = idx == 0
             with st.expander(item["name"], expanded=expanded):
                 st.write(item["desc"])
-                st.code(format_ticket(item["reds"], int(item["blue"])))
+                _col_num, _col_cmp = st.columns([3, 1])
+                _col_num.code(format_ticket(item["reds"], int(item["blue"])))
+                _m, _msg = compare_ssq_with_history(item["reds"], int(item["blue"]), df)
+                if _m:
+                    _col_cmp.warning(f"✅ {_msg}")
+                else:
+                    _col_cmp.caption("🔍 历史未重现")
                 if st.button("加入备选", key=f"ssq_method_backup_{idx}"):
                     smooth_val = st.session_state.get("ssq_markov_smooth")
                     path = save_prediction_backup(
