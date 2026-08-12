@@ -97,17 +97,19 @@ def append_lottery_data(
     if df_existing.empty or issue_col not in df_existing.columns:
         raise ValueError("已有数据文件格式异常，无法追加。")
 
-    existing_issues = set(df_existing[issue_col].astype(str).str.strip())
-    latest_issue = df_existing[issue_col].astype(str).str.strip().max()
+    df_existing[issue_col] = df_existing[issue_col].astype(str).str.strip()
+    existing_issues = set(df_existing[issue_col])
+    latest_issue = df_existing[issue_col].max()
 
     df_new = fetch_func(fetch_limit)
-    new_issues = set(df_new[issue_col].astype(str).str.strip())
+    df_new[issue_col] = df_new[issue_col].astype(str).str.strip()
+    new_issues = set(df_new[issue_col])
     truly_new = new_issues - existing_issues
 
     if not truly_new:
         return 0, len(existing_issues)
 
-    df_new_filtered = df_new[df_new[issue_col].astype(str).str.strip().isin(truly_new)].copy()
+    df_new_filtered = df_new[df_new[issue_col].isin(truly_new)].copy()
     df_combined = pd.concat([df_existing, df_new_filtered], ignore_index=True)
     df_combined = df_combined.drop_duplicates(subset=[issue_col], keep="last")
     df_combined = df_combined.sort_values(by=issue_col, ascending=True).reset_index(drop=True)
@@ -2048,6 +2050,7 @@ def render_ssq_markov_tab(df_num: pd.DataFrame, df_all: pd.DataFrame) -> None:
         value=min(MARKOV_DEFAULT_TOP_N, 16),
         key="ssq_markov_top_n",
     )
+    control_cols[1].caption("💡 拉普拉斯平滑，防止零概率。值越小越信任历史规律（敏感但可能过拟合），值越大越趋于平均（稳健但反应慢）。默认 1.0。")
 
     analysis = build_ssq_markov_analysis(df_num, int(analysis_window), float(smooth), int(top_n))
     recommended_reds = analysis["recommended_reds"]
@@ -2140,6 +2143,7 @@ def render_dlt_markov_tab(df_num: pd.DataFrame, df_all: pd.DataFrame) -> None:
         value=min(MARKOV_DEFAULT_TOP_N, 12),
         key="dlt_markov_top_n",
     )
+    control_cols[1].caption("💡 拉普拉斯平滑，防止零概率。值越小越信任历史规律（敏感但可能过拟合），值越大越趋于平均（稳健但反应慢）。默认 1.0。")
 
     analysis = build_dlt_markov_analysis(df_num, int(analysis_window), float(smooth), int(top_n))
     recommended_fronts = analysis["recommended_fronts"]
@@ -2232,6 +2236,7 @@ def render_sd_markov_tab(df_num: pd.DataFrame, df_all: pd.DataFrame) -> None:
         value=min(MARKOV_DEFAULT_TOP_N, 10),
         key="sd_markov_top_n",
     )
+    control_cols[1].caption("💡 拉普拉斯平滑，防止零概率。值越小越信任历史规律（敏感但可能过拟合），值越大越趋于平均（稳健但反应慢）。默认 1.0。")
 
     analysis = build_sd_markov_analysis(df_num, int(analysis_window), float(smooth), int(top_n))
     recommended_digits = analysis["recommended_digits"]
