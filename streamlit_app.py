@@ -57,6 +57,7 @@ PLOT_MARKER_SIZE = 6
 MARKOV_DEFAULT_WINDOW = 120
 MARKOV_DEFAULT_SMOOTH = 1.0
 MARKOV_DEFAULT_TOP_N = 10
+MARKOV_DEFAULT_COOLING = 0.5
 
 
 def sanitize_filename_fragment(text: str) -> str:
@@ -1774,50 +1775,67 @@ def compute_markov_transition_frame(
     numbers: Iterable[int],
     cols: List[str],
     smooth: float = 1.0,
+    cooling: float = 0.5,
 ) -> pd.DataFrame:
-    # 生成集合型号码的一阶马尔科夫转移明细表
+    # 生成集合型号码的二阶马尔科夫转移明细表（同时考虑最近两期状态 + 冷却降权）
     draws: List[set[int]] = []
     for row in df_num[cols].itertuples(index=False):
         draws.append({int(v) for v in row if not pd.isna(v)})
-    if len(draws) < 2:
-        return pd.DataFrame(
-            columns=[
-                "number",
-                "latest_state",
-                "prev_0_next_0",
-                "prev_0_next_1",
-                "prev_1_next_0",
-                "prev_1_next_1",
-                "appear_probability",
-            ]
-        )
+    empty_cols = [
+        "number", "state_t2", "state_t1", "pair_label",
+        "next_0", "next_1", "raw_probability",
+        "cooling_factor", "appear_probability",
+    ]
+    if len(draws) < 3:
+        return pd.DataFrame(columns=empty_cols)
 
-    draws = list(reversed(draws))
-    counts = {n: [[0, 0], [0, 0]] for n in numbers}
-    for idx in range(len(draws) - 1):
-        prev_set = draws[idx]
-        next_set = draws[idx + 1]
-        for n in numbers:
-            prev_state = 1 if n in prev_set else 0
-            next_state = 1 if n in next_set else 0
-            counts[n][prev_state][next_state] += 1
+    draws = list(reversed(draws))  # oldest→newest
+    numbers_list = list(numbers)
 
-    latest_set = draws[-1]
-    rows: List[Dict[str, float | int | str]] = []
-    for n in numbers:
-        latest_state = 1 if n in latest_set else 0
-        prev_next = counts[n][latest_state]
-        total = prev_next[0] + prev_next[1] + 2.0 * smooth
-        appear_probability = (prev_next[1] + smooth) / total if total > 0 else 0.0
+    # 二阶转移计数: counts[n][(s_t-2, s_t-1)] = [next_0, next_1]
+    _pairs = [(0, 0), (0, 1), (1, 0), (1, 1)]
+    counts = {n: {p: [0, 0] for p in _pairs} for n in numbers_list}
+    for idx in range(len(draws) - 2):
+        set_t2 = draws[idx]
+        set_t1 = draws[idx + 1]
+        set_next = draws[idx + 2]
+        for n in numbers_list:
+            s0 = 1 if n in set_t2 else 0
+            s1 = 1 if n in set_t1 else 0
+            sn = 1 if n in set_next else 0
+            counts[n][(s0, s1)][sn] += 1
+
+    # 当前状态：最近两期（用于预测下一期）
+    prev2_set = draws[-2]  # t-2（上上期）
+    prev1_set = draws[-1]  # t-1（上一期 / 最新一期）
+
+    rows: List[Dict[str, object]] = []
+    for n in numbers_list:
+        s_t2 = 1 if n in prev2_set else 0
+        s_t1 = 1 if n in prev1_set else 0
+        pair = (s_t2, s_t1)
+        pair_label = f"{'Hit' if s_t2 else 'Miss'}→{'Hit' if s_t1 else 'Miss'}"
+
+        nc = counts[n][pair]
+        total = nc[0] + nc[1] + 2.0 * smooth
+        raw_prob = (nc[1] + smooth) / total if total > 0 else 0.0
+
+        # 冷却降权：号码在最新一期出现过时，降低推荐权重
+        in_latest = n in prev1_set
+        cool_factor = cooling if in_latest else 1.0
+        adjusted_prob = raw_prob * cool_factor
+
         rows.append(
             {
                 "number": int(n),
-                "latest_state": "Hit" if latest_state == 1 else "Miss",
-                "prev_0_next_0": counts[n][0][0],
-                "prev_0_next_1": counts[n][0][1],
-                "prev_1_next_0": counts[n][1][0],
-                "prev_1_next_1": counts[n][1][1],
-                "appear_probability": float(appear_probability),
+                "state_t2": "Hit" if s_t2 else "Miss",
+                "state_t1": "Hit" if s_t1 else "Miss",
+                "pair_label": pair_label,
+                "next_0": nc[0],
+                "next_1": nc[1],
+                "raw_probability": float(raw_prob),
+                "cooling_factor": float(cool_factor),
+                "appear_probability": float(adjusted_prob),
             }
         )
 
@@ -1826,29 +1844,48 @@ def compute_markov_transition_frame(
     ).reset_index(drop=True)
 
 
-def compute_digit_markov_transition_frame(series: pd.Series, smooth: float = 1.0) -> pd.DataFrame:
-    # 生成单个位置数字的一阶马尔科夫转移明细表
+def compute_digit_markov_transition_frame(
+    series: pd.Series, smooth: float = 1.0, cooling: float = 0.5,
+) -> pd.DataFrame:
+    # 生成单个位置数字的二阶马尔科夫转移明细表（同时考虑最近两期 + 冷却降权）
     values = series.dropna().astype(int).iloc[::-1].reset_index(drop=True)
-    if len(values) < 2:
-        return pd.DataFrame(
-            columns=["digit", "last_digit", "transition_count", "appear_probability"]
-        )
+    empty_cols = [
+        "digit", "last_2nd", "last_1st", "pair_label",
+        "transition_count", "raw_probability",
+        "cooling_factor", "appear_probability",
+    ]
+    if len(values) < 3:
+        return pd.DataFrame(columns=empty_cols)
 
-    trans = {i: {j: 0 for j in range(10)} for i in range(10)}
-    for prev, nxt in zip(values[:-1], values[1:]):
-        trans[int(prev)][int(nxt)] += 1
-    last_digit = int(values.iloc[-1])
+    # 二阶转移计数: trans[(d_t-2, d_t-1)][d_t] = count
+    trans = {(i, j): {k: 0 for k in range(10)} for i in range(10) for j in range(10)}
+    for t2, t1, tn in zip(values[:-2], values[1:-1], values[2:]):
+        trans[(int(t2), int(t1))][int(tn)] += 1
 
-    rows: List[Dict[str, float | int]] = []
-    total = sum(trans[last_digit].values()) + 10.0 * smooth
+    last_2nd = int(values.iloc[-2])  # 上上期
+    last_1st = int(values.iloc[-1])  # 最新一期
+
+    rows: List[Dict[str, object]] = []
+    pair_key = (last_2nd, last_1st)
+    pair_total = sum(trans[pair_key].values()) + 10.0 * smooth
     for digit in range(10):
-        probability = (trans[last_digit][digit] + smooth) / total if total > 0 else 0.0
+        raw_count = trans[pair_key][digit]
+        raw_prob = (raw_count + smooth) / pair_total if pair_total > 0 else 0.0
+
+        # 冷却降权：与最新一期数字相同时降权
+        cool_factor = cooling if digit == last_1st else 1.0
+        adjusted_prob = raw_prob * cool_factor
+
         rows.append(
             {
                 "digit": digit,
-                "last_digit": last_digit,
-                "transition_count": trans[last_digit][digit],
-                "appear_probability": float(probability),
+                "last_2nd": last_2nd,
+                "last_1st": last_1st,
+                "pair_label": f"{last_2nd}→{last_1st}",
+                "transition_count": raw_count,
+                "raw_probability": float(raw_prob),
+                "cooling_factor": float(cool_factor),
+                "appear_probability": float(adjusted_prob),
             }
         )
 
@@ -1862,11 +1899,12 @@ def build_ssq_markov_analysis(
     analysis_window: int,
     smooth: float,
     top_n: int,
+    cooling: float = 0.5,
 ) -> Dict[str, object]:
     # 生成双色球马尔科夫专项分析结果
     window_df = df_num.head(min(int(analysis_window), len(df_num))).copy()
-    red_frame = compute_markov_transition_frame(window_df, range(1, 34), RED_COLS, smooth)
-    blue_frame = compute_markov_transition_frame(window_df, range(1, 17), [BLUE_COL], smooth)
+    red_frame = compute_markov_transition_frame(window_df, range(1, 34), RED_COLS, smooth, cooling)
+    blue_frame = compute_markov_transition_frame(window_df, range(1, 17), [BLUE_COL], smooth, cooling)
 
     red_scores = {
         int(row["number"]): float(row["appear_probability"]) for _, row in red_frame.iterrows()
@@ -1896,13 +1934,14 @@ def build_dlt_markov_analysis(
     analysis_window: int,
     smooth: float,
     top_n: int,
+    cooling: float = 0.5,
 ) -> Dict[str, object]:
     # 生成大乐透马尔科夫专项分析结果
     window_df = df_num.head(min(int(analysis_window), len(df_num))).copy()
     front_frame = compute_markov_transition_frame(
-        window_df, range(1, 36), DLT_FRONT_COLS, smooth
+        window_df, range(1, 36), DLT_FRONT_COLS, smooth, cooling
     )
-    back_frame = compute_markov_transition_frame(window_df, range(1, 13), DLT_BACK_COLS, smooth)
+    back_frame = compute_markov_transition_frame(window_df, range(1, 13), DLT_BACK_COLS, smooth, cooling)
 
     front_scores = {
         int(row["number"]): float(row["appear_probability"]) for _, row in front_frame.iterrows()
@@ -1930,6 +1969,7 @@ def build_sd_markov_analysis(
     analysis_window: int,
     smooth: float,
     top_n: int,
+    cooling: float = 0.5,
 ) -> Dict[str, object]:
     # 生成福彩3D马尔科夫专项分析结果
     window_df = df_num.head(min(int(analysis_window), len(df_num))).copy()
@@ -1937,7 +1977,7 @@ def build_sd_markov_analysis(
     recommended_digits: List[int] = []
 
     for col in SD_DIGIT_COLS:
-        frame = compute_digit_markov_transition_frame(window_df[col], smooth)
+        frame = compute_digit_markov_transition_frame(window_df[col], smooth, cooling)
         position_frames[col] = frame
         if frame.empty:
             recommended_digits.append(0)
@@ -1977,53 +2017,57 @@ def plot_markov_probability_bar(
 
 
 def format_set_markov_frame(frame: pd.DataFrame, number_width: int, top_n: int) -> pd.DataFrame:
-    # 格式化集合型号码马尔科夫结果表
+    # 格式化集合型号码马尔科夫结果表（二阶）
     display_df = frame.head(top_n).copy()
     if display_df.empty:
         return display_df
     display_df["number"] = display_df["number"].astype(int).map(
         lambda val: f"{int(val):0{number_width}d}"
     )
+    display_df["raw_probability"] = display_df["raw_probability"].map(lambda val: f"{val:.2%}")
     display_df["appear_probability"] = display_df["appear_probability"].map(lambda val: f"{val:.2%}")
     return display_df.rename(
         columns={
             "number": "Number",
-            "latest_state": "Latest State",
-            "prev_0_next_0": "0→0",
-            "prev_0_next_1": "0→1",
-            "prev_1_next_0": "1→0",
-            "prev_1_next_1": "1→1",
-            "appear_probability": "Next Probability",
+            "pair_label": "State(t-2→t-1)",
+            "next_0": "Next→0",
+            "next_1": "Next→1",
+            "raw_probability": "Raw Prob",
+            "cooling_factor": "Cooling",
+            "appear_probability": "Adjusted Prob",
         }
-    )
+    )[["Number", "State(t-2→t-1)", "Next→0", "Next→1", "Raw Prob", "Cooling", "Adjusted Prob"]]
 
 
 def format_digit_markov_frame(frame: pd.DataFrame, top_n: int) -> pd.DataFrame:
-    # 格式化福彩3D位置马尔科夫结果表
+    # 格式化福彩3D位置马尔科夫结果表（二阶）
     display_df = frame.head(top_n).copy()
     if display_df.empty:
         return display_df
     display_df["digit"] = display_df["digit"].astype(int).map(lambda val: f"{val:d}")
-    display_df["last_digit"] = display_df["last_digit"].astype(int).map(lambda val: f"{val:d}")
+    display_df["pair_label"] = display_df["pair_label"].astype(str)
+    display_df["raw_probability"] = display_df["raw_probability"].map(lambda val: f"{val:.2%}")
     display_df["appear_probability"] = display_df["appear_probability"].map(lambda val: f"{val:.2%}")
     return display_df.rename(
         columns={
             "digit": "Digit",
-            "last_digit": "Last Digit",
-            "transition_count": "Transition Count",
-            "appear_probability": "Next Probability",
+            "pair_label": "State(t-2→t-1)",
+            "transition_count": "Count",
+            "raw_probability": "Raw Prob",
+            "cooling_factor": "Cooling",
+            "appear_probability": "Adjusted Prob",
         }
-    )
+    )[["Digit", "State(t-2→t-1)", "Count", "Raw Prob", "Cooling", "Adjusted Prob"]]
 
 
 def render_ssq_markov_tab(df_num: pd.DataFrame, df_all: pd.DataFrame) -> None:
     # 渲染双色球马尔科夫专项分析页
     st.markdown("**马尔科夫预测专项分析**")
-    max_window = max(2, len(df_num))
-    control_cols = st.columns(3)
+    max_window = max(3, len(df_num))
+    control_cols = st.columns(4)
     analysis_window = control_cols[0].number_input(
         "马尔科夫分析期数",
-        min_value=2,
+        min_value=3,
         max_value=max_window,
         value=min(MARKOV_DEFAULT_WINDOW, max_window),
         step=10,
@@ -2037,23 +2081,32 @@ def render_ssq_markov_tab(df_num: pd.DataFrame, df_all: pd.DataFrame) -> None:
         step=0.1,
         key="ssq_markov_smooth",
     )
-    top_n = control_cols[2].slider(
+    cooling = control_cols[2].slider(
+        "冷却降权",
+        min_value=0.0,
+        max_value=1.0,
+        value=float(MARKOV_DEFAULT_COOLING),
+        step=0.05,
+        key="ssq_markov_cooling",
+    )
+    top_n = control_cols[3].slider(
         "概率展示 Top N",
         min_value=3,
         max_value=16,
         value=min(MARKOV_DEFAULT_TOP_N, 16),
         key="ssq_markov_top_n",
     )
-    control_cols[1].caption("💡 拉普拉斯平滑，防止零概率。值越小越信任历史规律（敏感但可能过拟合），值越大越趋于平均（稳健但反应慢）。默认 1.0。")
+    control_cols[1].caption("💡 拉普拉斯平滑，防止零概率。值越小越信任历史规律，值越大越趋于平均。默认 1.0。")
+    control_cols[2].caption("❄️ 上期出现的号码降权。0=完全排除，0.5=概率减半，1.0=不降权。")
 
-    analysis = build_ssq_markov_analysis(df_num, int(analysis_window), float(smooth), int(top_n))
+    analysis = build_ssq_markov_analysis(df_num, int(analysis_window), float(smooth), int(top_n), float(cooling))
     recommended_reds = analysis["recommended_reds"]
     recommended_blue = analysis["recommended_blue"]
     red_frame = analysis["red_frame"]
     blue_frame = analysis["blue_frame"]
 
     if red_frame.empty or blue_frame.empty:
-        st.warning("历史期数不足，至少需要 2 期数据才能进行马尔科夫转移分析。")
+        st.warning("历史期数不足，至少需要 3 期数据才能进行二阶马尔科夫转移分析。")
         return
 
     st.markdown("**马尔科夫推荐号码**")
@@ -2065,7 +2118,7 @@ def render_ssq_markov_tab(df_num: pd.DataFrame, df_all: pd.DataFrame) -> None:
         _col_cmp.warning(f"✅ {_msg}")
     else:
         _col_cmp.caption("🔍 历史未重现")
-    st.caption("说明：基于上一期命中/未命中状态的一阶转移概率进行排序与筛选。")
+    st.caption("说明：基于最近两期命中/未命中状态的二阶转移概率 + 冷却降权进行排序与筛选。")
     if st.button("加入备选", key="ssq_markov_backup"):
         path = save_prediction_backup(
             "ssq", "马尔科夫预测", int(analysis_window),
@@ -2110,11 +2163,11 @@ def render_ssq_markov_tab(df_num: pd.DataFrame, df_all: pd.DataFrame) -> None:
 def render_dlt_markov_tab(df_num: pd.DataFrame, df_all: pd.DataFrame) -> None:
     # 渲染大乐透马尔科夫专项分析页
     st.markdown("**马尔科夫预测专项分析**")
-    max_window = max(2, len(df_num))
-    control_cols = st.columns(3)
+    max_window = max(3, len(df_num))
+    control_cols = st.columns(4)
     analysis_window = control_cols[0].number_input(
         "马尔科夫分析期数",
-        min_value=2,
+        min_value=3,
         max_value=max_window,
         value=min(MARKOV_DEFAULT_WINDOW, max_window),
         step=10,
@@ -2128,23 +2181,32 @@ def render_dlt_markov_tab(df_num: pd.DataFrame, df_all: pd.DataFrame) -> None:
         step=0.1,
         key="dlt_markov_smooth",
     )
-    top_n = control_cols[2].slider(
+    cooling = control_cols[2].slider(
+        "冷却降权",
+        min_value=0.0,
+        max_value=1.0,
+        value=float(MARKOV_DEFAULT_COOLING),
+        step=0.05,
+        key="dlt_markov_cooling",
+    )
+    top_n = control_cols[3].slider(
         "概率展示 Top N",
         min_value=3,
         max_value=12,
         value=min(MARKOV_DEFAULT_TOP_N, 12),
         key="dlt_markov_top_n",
     )
-    control_cols[1].caption("💡 拉普拉斯平滑，防止零概率。值越小越信任历史规律（敏感但可能过拟合），值越大越趋于平均（稳健但反应慢）。默认 1.0。")
+    control_cols[1].caption("💡 拉普拉斯平滑，防止零概率。值越小越信任历史规律，值越大越趋于平均。默认 1.0。")
+    control_cols[2].caption("❄️ 上期出现的号码降权。0=完全排除，0.5=概率减半，1.0=不降权。")
 
-    analysis = build_dlt_markov_analysis(df_num, int(analysis_window), float(smooth), int(top_n))
+    analysis = build_dlt_markov_analysis(df_num, int(analysis_window), float(smooth), int(top_n), float(cooling))
     recommended_fronts = analysis["recommended_fronts"]
     recommended_backs = analysis["recommended_backs"]
     front_frame = analysis["front_frame"]
     back_frame = analysis["back_frame"]
 
     if front_frame.empty or back_frame.empty:
-        st.warning("历史期数不足，至少需要 2 期数据才能进行马尔科夫转移分析。")
+        st.warning("历史期数不足，至少需要 3 期数据才能进行二阶马尔科夫转移分析。")
         return
 
     st.markdown("**马尔科夫推荐号码**")
@@ -2156,7 +2218,7 @@ def render_dlt_markov_tab(df_num: pd.DataFrame, df_all: pd.DataFrame) -> None:
         _col_cmp.warning(f"✅ {_msg}")
     else:
         _col_cmp.caption("🔍 历史未重现")
-    st.caption("说明：前区按分区高概率稳定筛选，后区按转移概率排序选取。")
+    st.caption("说明：前区按分区二阶转移概率 + 冷却降权筛选，后区按转移概率排序选取。")
     if st.button("加入备选", key="dlt_markov_backup"):
         path = save_prediction_backup(
             "dlt", "马尔科夫预测", int(analysis_window),
@@ -2201,11 +2263,11 @@ def render_dlt_markov_tab(df_num: pd.DataFrame, df_all: pd.DataFrame) -> None:
 def render_sd_markov_tab(df_num: pd.DataFrame, df_all: pd.DataFrame) -> None:
     # 渲染福彩3D马尔科夫专项分析页
     st.markdown("**马尔科夫预测专项分析**")
-    max_window = max(2, len(df_num))
-    control_cols = st.columns(3)
+    max_window = max(3, len(df_num))
+    control_cols = st.columns(4)
     analysis_window = control_cols[0].number_input(
         "马尔科夫分析期数",
-        min_value=2,
+        min_value=3,
         max_value=max_window,
         value=min(MARKOV_DEFAULT_WINDOW, max_window),
         step=10,
@@ -2219,21 +2281,30 @@ def render_sd_markov_tab(df_num: pd.DataFrame, df_all: pd.DataFrame) -> None:
         step=0.1,
         key="sd_markov_smooth",
     )
-    top_n = control_cols[2].slider(
+    cooling = control_cols[2].slider(
+        "冷却降权",
+        min_value=0.0,
+        max_value=1.0,
+        value=float(MARKOV_DEFAULT_COOLING),
+        step=0.05,
+        key="sd_markov_cooling",
+    )
+    top_n = control_cols[3].slider(
         "概率展示 Top N",
         min_value=3,
         max_value=10,
         value=min(MARKOV_DEFAULT_TOP_N, 10),
         key="sd_markov_top_n",
     )
-    control_cols[1].caption("💡 拉普拉斯平滑，防止零概率。值越小越信任历史规律（敏感但可能过拟合），值越大越趋于平均（稳健但反应慢）。默认 1.0。")
+    control_cols[1].caption("💡 拉普拉斯平滑，防止零概率。值越小越信任历史规律，值越大越趋于平均。默认 1.0。")
+    control_cols[2].caption("❄️ 上期出现的数字降权。0=完全排除，0.5=概率减半，1.0=不降权。")
 
-    analysis = build_sd_markov_analysis(df_num, int(analysis_window), float(smooth), int(top_n))
+    analysis = build_sd_markov_analysis(df_num, int(analysis_window), float(smooth), int(top_n), float(cooling))
     recommended_digits = analysis["recommended_digits"]
     position_frames = analysis["position_frames"]
 
     if any(frame.empty for frame in position_frames.values()):
-        st.warning("历史期数不足，至少需要 2 期数据才能进行马尔科夫转移分析。")
+        st.warning("历史期数不足，至少需要 3 期数据才能进行二阶马尔科夫转移分析。")
         return
 
     st.markdown("**马尔科夫推荐号码**")
@@ -2245,7 +2316,7 @@ def render_sd_markov_tab(df_num: pd.DataFrame, df_all: pd.DataFrame) -> None:
         _col_cmp.warning(f"✅ {_msg}")
     else:
         _col_cmp.caption("🔍 历史未重现")
-    st.caption("说明：分别对百位、十位、个位建立一阶转移概率并独立选择最高概率数字。")
+    st.caption("说明：分别对百位、十位、个位建立二阶转移概率 + 冷却降权，独立选择最高概率数字。")
     if st.button("加入备选", key="sd_markov_backup"):
         path = save_prediction_backup(
             "sd", "马尔科夫预测", int(analysis_window),
