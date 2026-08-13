@@ -292,17 +292,10 @@ def setup_plot_style() -> None:
     plt.rcParams["lines.markersize"] = PLOT_MARKER_SIZE
 
 
-def save_and_show(fig: plt.Figure, name: str) -> Path:
-    # 保存图像并返回路径
-    PLOT_DIR.mkdir(parents=True, exist_ok=True)
-    source_name = st.session_state.get("plot_source_name", "lottery")
-    timestamp = st.session_state.get("plot_timestamp", datetime.now().strftime("%Y%m%d_%H%M%S"))
-    safe_name = sanitize_filename_fragment(name)
-    output_path = PLOT_DIR / f"{source_name}_{safe_name}_{timestamp}.jpg"
-    fig.savefig(output_path, dpi=300, bbox_inches="tight")
+def save_and_show(fig: plt.Figure, name: str) -> None:
+    # 显示图像
     st.pyplot(fig, use_container_width=True)
     plt.close(fig)
-    return output_path
 
 
 def render_ball_row(reds: Iterable[str], blue: str) -> None:
@@ -2101,8 +2094,6 @@ def render_ssq_markov_tab(df_num: pd.DataFrame, df_all: pd.DataFrame) -> None:
         min(int(top_n), 16),
         label_width=2,
     )
-    st.caption(f"图片已保存：{path_red}")
-    st.caption(f"图片已保存：{path_blue}")
 
     table_cols = st.columns(2)
     with table_cols[0]:
@@ -2194,8 +2185,6 @@ def render_dlt_markov_tab(df_num: pd.DataFrame, df_all: pd.DataFrame) -> None:
         min(int(top_n), 12),
         label_width=2,
     )
-    st.caption(f"图片已保存：{path_front}")
-    st.caption(f"图片已保存：{path_back}")
 
     table_cols = st.columns(2)
     with table_cols[0]:
@@ -2285,7 +2274,6 @@ def render_sd_markov_tab(df_num: pd.DataFrame, df_all: pd.DataFrame) -> None:
                 int(top_n),
                 label_width=1,
             )
-            st.caption(f"{label}图片已保存：{path_pos}")
             st.dataframe(format_digit_markov_frame(frame, int(top_n)), use_container_width=True)
 
 
@@ -4007,8 +3995,7 @@ def main() -> None:
             tag = f"sd_freq_{n_periods_sd}"
             path_pos = plot_sd_position_frequency(df_sd_recent_num, tag)
             path_all = plot_sd_overall_frequency(df_sd_recent_num, tag)
-            st.caption(f"图片已保存：{path_pos}")
-            st.caption(f"图片已保存：{path_all}")
+
 
         with tab_trend:
             st.markdown("**和值与奇偶趋势**")
@@ -4016,9 +4003,7 @@ def main() -> None:
             path_sum = plot_sd_sum_trend(df_sd_recent_num, tag)
             path_dist = plot_sd_sum_distribution(df_sd_recent_num, tag)
             path_oe = plot_sd_odd_even_trend(df_sd_recent_num, tag)
-            st.caption(f"图片已保存：{path_sum}")
-            st.caption(f"图片已保存：{path_dist}")
-            st.caption(f"图片已保存：{path_oe}")
+
 
         with tab_markov:
             render_sd_markov_tab(df_sd_recent_num, df_sd)
@@ -4220,16 +4205,14 @@ def main() -> None:
             tag = f"dlt_freq_{n_periods_dlt}"
             path_front = plot_dlt_front_frequency(df_dlt_recent_num, tag)
             path_back = plot_dlt_back_frequency(df_dlt_recent_num, tag)
-            st.caption(f"图片已保存：{path_front}")
-            st.caption(f"图片已保存：{path_back}")
+
 
         with tab_trend:
             st.markdown("**走势散点与序列趋势**")
             tag = f"dlt_trend_{n_periods_dlt}"
             path_front = plot_dlt_front_trend(df_dlt_recent_num, tag)
             path_back = plot_dlt_back_trend(df_dlt_recent_num, tag)
-            st.caption(f"图片已保存：{path_front}")
-            st.caption(f"图片已保存：{path_back}")
+
 
         with tab_structure:
             st.markdown("**和值、跨度与奇偶结构**")
@@ -4237,9 +4220,7 @@ def main() -> None:
             path_sum = plot_dlt_sum_trend(df_dlt_recent_num, tag)
             path_span = plot_dlt_span_trend(df_dlt_recent_num, tag)
             path_oe = plot_dlt_odd_even_trend(df_dlt_recent_num, tag)
-            st.caption(f"图片已保存：{path_sum}")
-            st.caption(f"图片已保存：{path_span}")
-            st.caption(f"图片已保存：{path_oe}")
+
 
         with tab_markov:
             render_dlt_markov_tab(df_dlt_recent_num, df_dlt)
@@ -4447,16 +4428,14 @@ def main() -> None:
         tag = f"freq_{n_periods}"
         path_red = plot_red_frequency(df_recent_num, tag)
         path_blue = plot_blue_frequency(df_recent_num, tag)
-        st.caption(f"图片已保存：{path_red}")
-        st.caption(f"图片已保存：{path_blue}")
+
 
     with tab_trend:
         st.markdown("**走势散点与序列趋势**")
         tag = f"trend_{n_periods}"
         path_red = plot_red_trend(df_recent_num, tag)
         path_blue = plot_blue_trend(df_recent_num, tag)
-        st.caption(f"图片已保存：{path_red}")
-        st.caption(f"图片已保存：{path_blue}")
+
 
     with tab_structure:
         st.markdown("**和值、跨度与奇偶结构**")
@@ -4464,9 +4443,7 @@ def main() -> None:
         path_sum = plot_sum_trend(df_recent_num, tag)
         path_span = plot_span_trend(df_recent_num, tag)
         path_oe = plot_odd_even_trend(df_recent_num, tag)
-        st.caption(f"图片已保存：{path_sum}")
-        st.caption(f"图片已保存：{path_span}")
-        st.caption(f"图片已保存：{path_oe}")
+
 
     with tab_markov:
         render_ssq_markov_tab(df_recent_num, df)
