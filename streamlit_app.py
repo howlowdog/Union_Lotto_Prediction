@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import math
 import random
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Iterable, List, Tuple
@@ -3735,6 +3736,78 @@ def run_sd_backtest(df: pd.DataFrame, backtest_periods: int, train_window: int) 
     return pd.DataFrame(rows).sort_values("平均定位命中", ascending=False).reset_index(drop=True)
 
 
+@st.fragment
+def _dlt_check_fragment(df_dlt: pd.DataFrame):
+    st.markdown("**手动输入号码查询是否与历史开奖重复**")
+    st.caption("每组输入 7 个数字（空格或逗号分隔）：前 5 个为前区(1-35)，后 2 个为后区(1-12)。最多 5 组，空行自动跳过。")
+    dlt_check_texts = []
+    for i in range(5):
+        txt = st.text_input(
+            f"第 {i+1} 组",
+            placeholder="例如：03 12 18 27 35 04 11",
+            key=f"dlt_chk_txt_{i}",
+        )
+        dlt_check_texts.append(txt)
+
+    if st.button("判断是否重复", key="dlt_check_btn"):
+        parsed = []
+        for txt in dlt_check_texts:
+            nums = [int(x) for x in re.split(r"[,\s]+", txt.strip()) if x]
+            if len(nums) == 7 and all(1 <= n <= 35 for n in nums[:5]) and all(1 <= n <= 12 for n in nums[5:]):
+                parsed.append((nums[:5], nums[5:]))
+            elif nums:
+                st.warning(f"输入格式有误：{txt}（需 7 个数字，前区 1-35，后区 1-12）")
+        if parsed:
+            for fronts, backs in parsed:
+                front_strs = [f"{n:02d}" for n in fronts]
+                back_strs = [f"{n:02d}" for n in backs]
+                render_dlt_row(front_strs, back_strs)
+                matched, msg = compare_dlt_with_history(fronts, backs, df_dlt)
+                if matched:
+                    st.warning(f"✅ {msg}")
+                else:
+                    st.info("🔍 历史数据中未找到完全相同的组合")
+                st.divider()
+        elif not any(dlt_check_texts):
+            st.warning("请至少填写一组号码。")
+
+
+@st.fragment
+def _ssq_check_fragment(df: pd.DataFrame):
+    st.markdown("**手动输入号码查询是否与历史开奖重复**")
+    st.caption("每组输入 7 个数字（空格或逗号分隔）：前 6 个为红球(1-33)，第 7 个为蓝球(1-16)。最多 5 组，空行自动跳过。")
+    ssq_check_texts = []
+    for i in range(5):
+        txt = st.text_input(
+            f"第 {i+1} 组",
+            placeholder="例如：01 07 14 22 28 33 09",
+            key=f"ssq_chk_txt_{i}",
+        )
+        ssq_check_texts.append(txt)
+
+    if st.button("判断是否重复", key="ssq_check_btn"):
+        parsed = []
+        for txt in ssq_check_texts:
+            nums = [int(x) for x in re.split(r"[,\s]+", txt.strip()) if x]
+            if len(nums) == 7 and all(1 <= n <= 33 for n in nums[:6]) and 1 <= nums[6] <= 16:
+                parsed.append((nums[:6], nums[6]))
+            elif nums:
+                st.warning(f"输入格式有误：{txt}（需 7 个数字，红球 1-33，蓝球 1-16）")
+        if parsed:
+            for reds, blue in parsed:
+                red_strs = [f"{n:02d}" for n in reds]
+                blue_str = f"{blue:02d}"
+                render_ball_row(red_strs, blue_str)
+                matched, msg = compare_ssq_with_history(reds, blue, df)
+                if matched:
+                    st.warning(f"✅ {msg}")
+                else:
+                    st.info("🔍 历史数据中未找到完全相同的组合")
+                st.divider()
+        elif not any(ssq_check_texts):
+            st.warning("请至少填写一组号码。")
+
+
 def main() -> None:
     st.set_page_config(page_title="Lottery Visual Lab", layout="wide")
 
@@ -4138,8 +4211,8 @@ def main() -> None:
         st.subheader("最新一期号码")
         render_dlt_row(front_latest, back_latest)
 
-        tab_freq, tab_trend, tab_structure, tab_markov, tab_predict, tab_backtest, tab_data = st.tabs(
-            ["频次分布", "号码走势", "结构趋势", "马尔科夫预测", "创意预测", "回测分析", "原始数据"]
+        tab_freq, tab_trend, tab_structure, tab_markov, tab_predict, tab_backtest, tab_data, tab_check = st.tabs(
+            ["频次分布", "号码走势", "结构趋势", "马尔科夫预测", "创意预测", "回测分析", "原始数据", "号码查重"]
         )
 
         with tab_freq:
@@ -4292,6 +4365,9 @@ def main() -> None:
             st.markdown("**最近数据预览**")
             st.dataframe(df_dlt_recent, use_container_width=True, height=420)
 
+        with tab_check:
+            _dlt_check_fragment(df_dlt)
+
         return
 
     if not data_path.exists():
@@ -4362,8 +4438,8 @@ def main() -> None:
     st.subheader("最新一期号码")
     render_ball_row(red_latest, blue_latest)
 
-    tab_freq, tab_trend, tab_structure, tab_markov, tab_predict, tab_backtest, tab_data = st.tabs(
-        ["频次分布", "号码走势", "结构趋势", "马尔科夫预测", "创意预测", "回测分析", "原始数据"]
+    tab_freq, tab_trend, tab_structure, tab_markov, tab_predict, tab_backtest, tab_data, tab_check = st.tabs(
+        ["频次分布", "号码走势", "结构趋势", "马尔科夫预测", "创意预测", "回测分析", "原始数据", "号码查重"]
     )
 
     with tab_freq:
@@ -4506,6 +4582,9 @@ def main() -> None:
     with tab_data:
         st.markdown("**最近数据预览**")
         st.dataframe(df_recent, use_container_width=True, height=420)
+
+    with tab_check:
+        _ssq_check_fragment(df)
 
 
 if __name__ == "__main__":
