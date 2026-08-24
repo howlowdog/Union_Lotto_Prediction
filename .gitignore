@@ -22,6 +22,7 @@ ssq_history.xlsx
 dlt_history.xlsx
 sd_history.xlsx
 *.log
+*.txt
 
 plots/
 .DS_Store
