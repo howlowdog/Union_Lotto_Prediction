@@ -126,16 +126,18 @@ def save_prediction_backup(
     analysis_periods: int,
     numbers_str: str,
     smooth: float | None = None,
+    cooling: float | None = None,
 ) -> Path:
     # 将预测结果追加写入 {prefix}_{年月日}.txt
     now = datetime.now()
     filename = f"{prefix}_{now.strftime('%Y%m%d')}.txt"
     filepath = Path(filename)
     smooth_text = f"  平滑系数: {smooth}" if smooth is not None else ""
+    cooling_text = f"  冷却降权: {cooling}" if cooling is not None else ""
     line = (
         f"[{now.strftime('%Y-%m-%d %H:%M:%S')}] "
         f"预测类型: {method_name}  "
-        f"分析期数: {analysis_periods}{smooth_text}  "
+        f"分析期数: {analysis_periods}{smooth_text}{cooling_text}  "
         f"预测号码: {numbers_str}\n"
     )
     with open(filepath, "a", encoding="utf-8") as f:
@@ -2124,6 +2126,7 @@ def render_ssq_markov_tab(df_num: pd.DataFrame, df_all: pd.DataFrame) -> None:
             "ssq", "马尔科夫预测", int(analysis_window),
             format_ticket(recommended_reds, recommended_blue),
             smooth=float(smooth),
+            cooling=float(cooling),
         )
         st.success(f"已保存到 {path}")
 
@@ -2224,6 +2227,7 @@ def render_dlt_markov_tab(df_num: pd.DataFrame, df_all: pd.DataFrame) -> None:
             "dlt", "马尔科夫预测", int(analysis_window),
             format_dlt_ticket(recommended_fronts, recommended_backs),
             smooth=float(smooth),
+            cooling=float(cooling),
         )
         st.success(f"已保存到 {path}")
 
@@ -2322,6 +2326,7 @@ def render_sd_markov_tab(df_num: pd.DataFrame, df_all: pd.DataFrame) -> None:
             "sd", "马尔科夫预测", int(analysis_window),
             format_sd_ticket(recommended_digits),
             smooth=float(smooth),
+            cooling=float(cooling),
         )
         st.success(f"已保存到 {path}")
 
