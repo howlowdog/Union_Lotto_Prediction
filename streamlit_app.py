@@ -2121,14 +2121,13 @@ def render_ssq_markov_tab(df_num: pd.DataFrame, df_all: pd.DataFrame) -> None:
     else:
         _col_cmp.caption("🔍 历史未重现")
     st.caption("说明：基于最近两期命中/未命中状态的二阶转移概率 + 冷却降权进行排序与筛选。")
-    if st.button("加入备选", key="ssq_markov_backup"):
-        path = save_prediction_backup(
-            "ssq", "马尔科夫预测", int(analysis_window),
-            format_ticket(recommended_reds, recommended_blue),
-            smooth=float(smooth),
-            cooling=float(cooling),
-        )
-        st.success(f"已保存到 {path}")
+    _backup_button_fragment(
+        "ssq", "马尔科夫预测", int(analysis_window),
+        format_ticket(recommended_reds, recommended_blue),
+        key="ssq_markov_backup",
+        smooth=float(smooth),
+        cooling=float(cooling),
+    )
 
     path_red = plot_markov_probability_bar(
         red_frame,
@@ -2222,14 +2221,13 @@ def render_dlt_markov_tab(df_num: pd.DataFrame, df_all: pd.DataFrame) -> None:
     else:
         _col_cmp.caption("🔍 历史未重现")
     st.caption("说明：前区按分区二阶转移概率 + 冷却降权筛选，后区按转移概率排序选取。")
-    if st.button("加入备选", key="dlt_markov_backup"):
-        path = save_prediction_backup(
-            "dlt", "马尔科夫预测", int(analysis_window),
-            format_dlt_ticket(recommended_fronts, recommended_backs),
-            smooth=float(smooth),
-            cooling=float(cooling),
-        )
-        st.success(f"已保存到 {path}")
+    _backup_button_fragment(
+        "dlt", "马尔科夫预测", int(analysis_window),
+        format_dlt_ticket(recommended_fronts, recommended_backs),
+        key="dlt_markov_backup",
+        smooth=float(smooth),
+        cooling=float(cooling),
+    )
 
     path_front = plot_markov_probability_bar(
         front_frame,
@@ -2321,14 +2319,13 @@ def render_sd_markov_tab(df_num: pd.DataFrame, df_all: pd.DataFrame) -> None:
     else:
         _col_cmp.caption("🔍 历史未重现")
     st.caption("说明：分别对百位、十位、个位建立二阶转移概率 + 冷却降权，独立选择最高概率数字。")
-    if st.button("加入备选", key="sd_markov_backup"):
-        path = save_prediction_backup(
-            "sd", "马尔科夫预测", int(analysis_window),
-            format_sd_ticket(recommended_digits),
-            smooth=float(smooth),
-            cooling=float(cooling),
-        )
-        st.success(f"已保存到 {path}")
+    _backup_button_fragment(
+        "sd", "马尔科夫预测", int(analysis_window),
+        format_sd_ticket(recommended_digits),
+        key="sd_markov_backup",
+        smooth=float(smooth),
+        cooling=float(cooling),
+    )
 
     pos_cols = st.columns(3)
     position_labels = {
@@ -3801,6 +3798,25 @@ def run_sd_backtest(df: pd.DataFrame, backtest_periods: int, train_window: int) 
 
 
 @st.fragment
+def _backup_button_fragment(
+    prefix: str,
+    method_name: str,
+    analysis_periods: int,
+    numbers_str: str,
+    key: str,
+    smooth: float | None = None,
+    cooling: float | None = None,
+) -> None:
+    # 加入备选按钮片段：点击后仅重跑该片段，不触发全页面刷新，成功提示保持至下次全页重跑（与原有行为一致）
+    if st.button("加入备选", key=key):
+        path = save_prediction_backup(
+            prefix, method_name, analysis_periods, numbers_str,
+            smooth=smooth, cooling=cooling,
+        )
+        st.success(f"已保存到 {path}")
+
+
+@st.fragment
 def _dlt_check_fragment(df_dlt: pd.DataFrame):
     st.markdown("**手动输入号码查询是否与历史开奖重复**")
     st.caption("每组输入 7 个数字（空格或逗号分隔）：前 5 个为前区(1-35)，后 2 个为后区(1-12)。最多 5 组，空行自动跳过。")
@@ -4105,9 +4121,10 @@ def main() -> None:
             else:
                 _col_cmp.caption("🔍 历史未重现")
             st.caption("综合规则：多方法投票 + 近期热度微调。")
-            if st.button("加入备选", key="sd_base_backup"):
-                path = save_prediction_backup("sd", "基础推荐", n_periods_sd, format_sd_ticket(sd_base))
-                st.success(f"已保存到 {path}")
+            _backup_button_fragment(
+                "sd", "基础推荐", n_periods_sd, format_sd_ticket(sd_base),
+                key="sd_base_backup",
+            )
 
             if sd_method_weights:
                 sd_feedback = build_sd_ensemble(
@@ -4127,9 +4144,10 @@ def main() -> None:
                 else:
                     _col_cmp.caption("🔍 历史未重现")
                 st.caption("反馈逻辑：依据上一期实际号码对方法投票权重自动调整。")
-                if st.button("加入备选", key="sd_feedback_backup"):
-                    path = save_prediction_backup("sd", "反馈推荐", n_periods_sd, format_sd_ticket(sd_feedback))
-                    st.success(f"已保存到 {path}")
+                _backup_button_fragment(
+                    "sd", "反馈推荐", n_periods_sd, format_sd_ticket(sd_feedback),
+                    key="sd_feedback_backup",
+                )
             else:
                 st.caption("反馈逻辑：历史期数不足，默认使用基础推荐。")
 
@@ -4144,14 +4162,13 @@ def main() -> None:
                         _col_cmp.warning(f"✅ {_msg}")
                     else:
                         _col_cmp.caption("🔍 历史未重现")
-                    if st.button("加入备选", key=f"sd_method_backup_{idx}"):
-                        smooth_val = st.session_state.get("sd_markov_smooth")
-                        path = save_prediction_backup(
-                            "sd", item["name"], n_periods_sd,
-                            format_sd_ticket(item["digits"]),
-                            smooth=smooth_val,
-                        )
-                        st.success(f"已保存到 {path}")
+                    smooth_val = st.session_state.get("sd_markov_smooth")
+                    _backup_button_fragment(
+                        "sd", item["name"], n_periods_sd,
+                        format_sd_ticket(item["digits"]),
+                        key=f"sd_method_backup_{idx}",
+                        smooth=smooth_val,
+                    )
 
         with tab_backtest:
             st.markdown("**回测分析统计**")
@@ -4333,9 +4350,10 @@ def main() -> None:
             else:
                 _col_cmp.caption("🔍 历史未重现")
             st.caption("综合规则：多方法投票 + 近期热度微调 + 分区约束。")
-            if st.button("加入备选", key="dlt_base_backup"):
-                path = save_prediction_backup("dlt", "基础推荐", n_periods_dlt, format_dlt_ticket(base_fronts, base_backs))
-                st.success(f"已保存到 {path}")
+            _backup_button_fragment(
+                "dlt", "基础推荐", n_periods_dlt, format_dlt_ticket(base_fronts, base_backs),
+                key="dlt_base_backup",
+            )
 
             if dlt_method_weights:
                 feedback_fronts, feedback_backs = build_dlt_ensemble(
@@ -4358,9 +4376,10 @@ def main() -> None:
                 else:
                     _col_cmp.caption("🔍 历史未重现")
                 st.caption("反馈逻辑：依据上一期实际号码对方法投票权重自动调整。")
-                if st.button("加入备选", key="dlt_feedback_backup"):
-                    path = save_prediction_backup("dlt", "反馈推荐", n_periods_dlt, format_dlt_ticket(feedback_fronts, feedback_backs))
-                    st.success(f"已保存到 {path}")
+                _backup_button_fragment(
+                    "dlt", "反馈推荐", n_periods_dlt, format_dlt_ticket(feedback_fronts, feedback_backs),
+                    key="dlt_feedback_backup",
+                )
             else:
                 st.caption("反馈逻辑：历史期数不足，默认使用基础推荐。")
 
@@ -4375,14 +4394,13 @@ def main() -> None:
                         _col_cmp.warning(f"✅ {_msg}")
                     else:
                         _col_cmp.caption("🔍 历史未重现")
-                    if st.button("加入备选", key=f"dlt_method_backup_{idx}"):
-                        smooth_val = st.session_state.get("dlt_markov_smooth")
-                        path = save_prediction_backup(
-                            "dlt", item["name"], n_periods_dlt,
-                            format_dlt_ticket(item["fronts"], item["backs"]),
-                            smooth=smooth_val,
-                        )
-                        st.success(f"已保存到 {path}")
+                    smooth_val = st.session_state.get("dlt_markov_smooth")
+                    _backup_button_fragment(
+                        "dlt", item["name"], n_periods_dlt,
+                        format_dlt_ticket(item["fronts"], item["backs"]),
+                        key=f"dlt_method_backup_{idx}",
+                        smooth=smooth_val,
+                    )
 
         with tab_backtest:
             st.markdown("**回测分析统计**")
@@ -4550,9 +4568,10 @@ def main() -> None:
         else:
             _col_cmp.caption("🔍 历史未重现")
         st.caption("综合规则：多方法投票 + 近期热度微调 + 分区约束。")
-        if st.button("加入备选", key="ssq_base_backup"):
-            path = save_prediction_backup("ssq", "基础推荐", n_periods, format_ticket(base_reds, base_blue))
-            st.success(f"已保存到 {path}")
+        _backup_button_fragment(
+            "ssq", "基础推荐", n_periods, format_ticket(base_reds, base_blue),
+            key="ssq_base_backup",
+        )
 
         if ssq_method_weights:
             feedback_reds, feedback_blue = build_ensemble_recommendation(
@@ -4572,9 +4591,10 @@ def main() -> None:
             else:
                 _col_cmp.caption("🔍 历史未重现")
             st.caption("反馈逻辑：依据上一期实际号码对方法投票权重自动调整。")
-            if st.button("加入备选", key="ssq_feedback_backup"):
-                path = save_prediction_backup("ssq", "反馈推荐", n_periods, format_ticket(feedback_reds, feedback_blue))
-                st.success(f"已保存到 {path}")
+            _backup_button_fragment(
+                "ssq", "反馈推荐", n_periods, format_ticket(feedback_reds, feedback_blue),
+                key="ssq_feedback_backup",
+            )
         else:
             st.caption("反馈逻辑：历史期数不足，默认使用基础推荐。")
 
@@ -4589,14 +4609,13 @@ def main() -> None:
                     _col_cmp.warning(f"✅ {_msg}")
                 else:
                     _col_cmp.caption("🔍 历史未重现")
-                if st.button("加入备选", key=f"ssq_method_backup_{idx}"):
-                    smooth_val = st.session_state.get("ssq_markov_smooth")
-                    path = save_prediction_backup(
-                        "ssq", item["name"], n_periods,
-                        format_ticket(item["reds"], int(item["blue"])),
-                        smooth=smooth_val,
-                    )
-                    st.success(f"已保存到 {path}")
+                smooth_val = st.session_state.get("ssq_markov_smooth")
+                _backup_button_fragment(
+                    "ssq", item["name"], n_periods,
+                    format_ticket(item["reds"], int(item["blue"])),
+                    key=f"ssq_method_backup_{idx}",
+                    smooth=smooth_val,
+                )
 
     with tab_backtest:
         st.markdown("**回测分析统计**")
